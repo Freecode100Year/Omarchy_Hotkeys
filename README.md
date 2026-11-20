@@ -40,6 +40,8 @@ omarchy-hotkeys disable "SUPER + SHIFT + B"              # 关闭一个默认快
 omarchy-hotkeys remove "SUPER + ALT + T"                 # 删除自己的，或恢复被关闭的默认快捷键
 omarchy-hotkeys list                                     # 看自己设定的快捷键
 omarchy-hotkeys edit                                     # 直接编辑设置文件，改完运行 omarchy-hotkeys apply
+omarchy-hotkeys doctor                                   # 检查快捷键为什么没反应
+omarchy-hotkeys test "SUPER + ALT + T"                   # 直接运行这个快捷键的命令，显示出错信息
 ```
 
 按键写法：`SUPER`、`CTRL`、`ALT`、`SHIFT` 加一个键，用 `+` 连接，大小写都可以。新设的快捷键会出现在 Omarchy 的快捷键菜单（`Super + K`）里。
@@ -53,6 +55,17 @@ omarchy-hotkeys edit                                     # 直接编辑设置文
 | `~/.local/share/omarchy-hotkeys/manual-<语言>.html` | 生成的说明书 |
 
 卸载：`omarchy-hotkeys uninstall`。你的 `hotkeys.conf` 会保留，重新安装后快捷键自动恢复。
+
+## 快捷键按了没反应
+
+在「自定义快捷键」里选「检查快捷键为什么没反应」，或在终端运行 `omarchy-hotkeys doctor`。它会逐项检查：
+
+- Omarchy 版本能不能读取自定义快捷键（需要 Lua 配置的新版 Omarchy，旧版请先 `omarchy update`）
+- Hyprland 有没有报告配置错误
+- 每个快捷键是否真的在 Hyprland 里生效
+- 每个快捷键要运行的命令在这台电脑上是否存在（没装的程序按了不会有任何反应）
+
+如果按任何 Super 快捷键（包括 Omarchy 自带的 `Super + K`）都没反应，通常是 Omarchy 外面的系统（Windows、虚拟机）抢走了 Super 键，先在 Omarchy 窗口里点一下再试。
 
 ## 说明
 

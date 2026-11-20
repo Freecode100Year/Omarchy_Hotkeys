@@ -96,6 +96,23 @@ check "Japanese: our words fall back to English, Omarchy's chapter is Japanese" 
 echo zh-TW >"$S/lang"; $H list >/dev/null; $H remove "SUPER + ALT + Z" >"$T/o" 2>&1
 check "Traditional Chinese messages" "grep -q '你的自訂快捷鍵裡沒有' $T/o"
 
+echo "doctor / test"
+echo zh-CN >"$S/lang"
+$H add "SUPER + ALT + M" "不存在" "no-such-program-xyz --flag" >"$T/o" 2>&1
+check "add warns when the command is missing" "grep -q '找不到命令「no-such-program-xyz」' $T/o"
+mkdir -p "$OMARCHY_PATH/default/hypr"; touch "$OMARCHY_PATH/default/hypr/toggles.lua"
+$H doctor >"$T/doc" 2>&1
+check "doctor: Lua config and file found" "grep -q '✓ Omarchy 会读取自定义快捷键文件' $T/doc && grep -q '✓ 自定义快捷键文件' $T/doc"
+check "doctor: flags a hotkey Hyprland does not have" "grep -q '✗ SUPER + ALT + M 没有在 Hyprland 中生效' $T/doc"
+check "doctor: flags the missing command" "grep -q '✗ 找不到命令：no-such-program-xyz' $T/doc"
+check "doctor: replaced browser hotkey seen as active" "grep -q 'SUPER + SHIFT + B 已在 Hyprland 中生效' $T/doc"
+rm -f "$OMARCHY_PATH/default/hypr/toggles.lua"; $H doctor >"$T/doc" 2>&1
+check "doctor: old Omarchy without Lua config is reported" "grep -q '✗ 这个 Omarchy 版本不读取' $T/doc"
+$H add "SUPER + ALT + E" "回显" "echo hotkey-test-ok" --force >/dev/null 2>&1
+$H test "SUPER + ALT + E" >"$T/o" 2>&1
+check "test runs the command and shows its output" "grep -q 'hotkey-test-ok' $T/o"
+$H remove "SUPER + ALT + M" >/dev/null; $H remove "SUPER + ALT + E" >/dev/null
+
 echo "uninstall"
 echo zh-CN >"$S/lang"
 $H uninstall >/dev/null

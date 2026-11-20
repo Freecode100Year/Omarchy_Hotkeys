@@ -9,6 +9,8 @@
 #   omarchy-hotkeys list                        your custom hotkeys
 #   omarchy-hotkeys edit                        open the settings file
 #   omarchy-hotkeys apply                       rebuild the Hyprland file from the settings file
+#   omarchy-hotkeys doctor                      check why a hotkey does nothing
+#   omarchy-hotkeys test "<keys>"               run a hotkey's command now and show any error
 #   omarchy-hotkeys uninstall | version
 #
 # Your hotkeys live in ~/.config/omarchy-hotkeys/hotkeys.conf, one per line:
@@ -18,7 +20,7 @@
 # a folder Omarchy loads after its own bindings, so no Omarchy or ~/.config/hypr file is edited.
 set -uo pipefail
 
-VERSION=1.0.0
+VERSION=1.0.1
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 APP_DIR="$(dirname "$(dirname "$SELF")")"
 CONFIG_DIR="$HOME/.config/omarchy-hotkeys"
@@ -183,6 +185,35 @@ cmd_apply() {
   return 0
 }
 
+# PATH as Hyprland sees it (bindings run with Hyprland's environment, not the terminal's).
+hypr_path() {
+  local pid
+  pid="$(pgrep -x Hyprland 2>/dev/null | head -1)"
+  [[ -n $pid ]] || pid="$(pgrep -x hyprland 2>/dev/null | head -1)"
+  if [[ -n $pid && -r /proc/$pid/environ ]]; then
+    tr '\0' '\n' <"/proc/$pid/environ" | sed -n 's/^PATH=//p'
+  else
+    printf '%s' "$PATH"
+  fi
+}
+
+# The program a command starts: its first word, after any VAR=value prefixes.
+command_program() {
+  local w
+  for w in $1; do
+    [[ $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && continue
+    printf '%s' "$w"
+    return
+  done
+}
+
+command_found() {
+  local prog
+  prog="$(command_program "$1")"
+  [[ -n $prog ]] || return 1
+  if [[ $prog == */* ]]; then [[ -x $prog ]]; else PATH="$(hypr_path):$PATH" command -v "$prog" >/dev/null 2>&1; fi
+}
+
 valid_text() { [[ -n $1 && $1 != *"|"* && $1 != *$'\n'* && ! $1 =~ [[:cntrl:]] ]]; }
 
 cmd_add() {
@@ -197,6 +228,7 @@ cmd_add() {
   if [[ -n $now && $now != "$mine" && $force != --force ]]; then
     die "$(t conflict "$keys" "$now")"
   fi
+  command_found "$cmd" || say "$(t cmdMissing "$(command_program "$cmd")")"
   remove_line "$keys"
   printf '%s | %s | %s\n' "$keys" "$desc" "$cmd" >>"$CONFIG"
   cmd_apply
@@ -300,6 +332,51 @@ cmd_manual() {
   fi
 }
 
+# ------------------------------------------------------------------ doctor --
+# What Hyprland has bound for a chord right now: "description" (or dispatcher) or nothing.
+bound_now() { current_action "$1"; }
+
+cmd_doctor() {
+  local ok="✓" no="✗" k d c v errs
+  say "== $(t doctorTitle) · Omarchy_Hotkeys $VERSION =="
+  v="$( (have omarchy-version && omarchy-version) 2>/dev/null || cat "$OMARCHY/version" 2>/dev/null || echo "?")"
+  say "$ok $(t docOmarchy "$v")"
+  if [[ -f $OMARCHY/default/hypr/toggles.lua ]]; then say "$ok $(t docLua)"; else say "$no $(t docNoLua)"; fi
+  if [[ -f $TOGGLE ]]; then say "$ok $(t docFile): $TOGGLE"; else say "$no $(t docNoFile)"; fi
+  errs="$(hyprctl configerrors 2>/dev/null | grep -v '^[[:space:]]*$' || true)"
+  if [[ -n $errs ]]; then say "$no $(t docErrors)"; printf '    %s\n' "$errs"; else say "$ok $(t docNoErrors)"; fi
+  while IFS=$'\t' read -r k d c; do
+    k="$(normalize_keys "$k")" || continue
+    v="$(bound_now "$k")"
+    if [[ $c == disable ]]; then
+      if [[ -z $v ]]; then say "$ok $(t docOff "$k")"; else say "$no $(t docStillOn "$k")"; fi
+      continue
+    fi
+    if [[ -n $v ]]; then say "$ok $(t docBound "$k" "$v")"; else say "$no $(t docNotBound "$k")"; fi
+    if command_found "$c"; then say "    $ok $(t docCmdOk "$(command_program "$c")")"; else say "    $no $(t docCmdMissing "$(command_program "$c")")"; fi
+  done < <(entries)
+  say ""
+  say "$(t docSuper)"
+  say "$(t docTest)"
+}
+
+# Run a hotkey's command the way Hyprland would (its PATH, no terminal) and show errors.
+cmd_test() {
+  local keys k d c found=""
+  keys="$(normalize_keys "${1:-}")" || die "$(t badKeys "${1:-}")"
+  while IFS=$'\t' read -r k d c; do [[ $(normalize_keys "$k" 2>/dev/null) == "$keys" && $c != disable ]] && found="$c"; done < <(entries)
+  [[ -n $found ]] || die "$(t notFound "$keys")"
+  say "$(t testRunning "$keys" "$found")"
+  local log
+  log="$(mktemp)"
+  PATH="$(hypr_path):$PATH" setsid bash -c "$found" </dev/null >"$log" 2>&1 &
+  local pid=$!
+  sleep 2
+  if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; echo "exit $?"; fi
+  cat "$log"
+  rm -f "$log"
+}
+
 # -------------------------------------------------------------------- menu --
 cmd_menu() {
   # Needs a terminal for gum; from the launcher, open a floating one.
@@ -309,7 +386,7 @@ cmd_menu() {
   have gum || die "gum is required"
   while :; do
     local choice
-    choice="$(gum choose --header "$(t menuTitle)" "$(t menuAdd)" "$(t menuRemove)" "$(t menuDisable)" "$(t menuList)" "$(t menuManual)" "$(t menuQuit)")" || return 0
+    choice="$(gum choose --header "$(t menuTitle)" "$(t menuAdd)" "$(t menuRemove)" "$(t menuDisable)" "$(t menuList)" "$(t menuDoctor)" "$(t menuManual)" "$(t menuQuit)")" || return 0
     case $choice in
       "$(t menuAdd)")
         local keys desc cmd now
@@ -339,6 +416,7 @@ cmd_menu() {
         cmd_disable "$(sed 's/ *→.*//' <<<"$pick")" || true
         ;;
       "$(t menuList)") cmd_list; gum input --placeholder "↵" >/dev/null || true ;;
+      "$(t menuDoctor)") cmd_doctor; gum input --placeholder "↵" >/dev/null || true ;;
       "$(t menuManual)") cmd_manual ;;
       *) return 0 ;;
     esac
@@ -372,8 +450,10 @@ case "${1:-manual}" in
   list) cmd_list ;;
   edit) cmd_edit ;;
   apply) cmd_apply ;;
+  doctor) cmd_doctor ;;
+  test) cmd_test "${2:-}" ;;
   uninstall) cmd_uninstall ;;
   version | --version | -v) echo "Omarchy_Hotkeys $VERSION" ;;
-  help | --help | -h) sed -n '2,20p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  help | --help | -h) sed -n '2,22p' "$SELF" | sed 's/^# \{0,1\}//' ;;
   *) echo "omarchy-hotkeys help" >&2; exit 1 ;;
 esac
