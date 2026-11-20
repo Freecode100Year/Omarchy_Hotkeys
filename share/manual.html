@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="@LANG@">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>@TITLE@</title>
+<style>
+:root{--bg:#f6f8fb;--card:#fff;--ink:#16202c;--muted:#4b5b6b;--line:#d9e1ea;--accent:#1f5f9f;--key:#eef3f8}
+@media (prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1a2029;--ink:#e8edf3;--muted:#a9b6c3;--line:#2c3644;--accent:#7cb8ff;--key:#232c38}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 18px 60px}
+h1{font-size:30px;margin:0 0 4px}h2{font-size:22px;margin:34px 0 10px}h3{font-size:18px;margin:22px 0 8px}
+.sub,.meta{color:var(--muted)}.meta{font-size:14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 20px 16px;margin-top:18px}
+table{width:100%;border-collapse:collapse;margin:8px 0}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:14px;color:var(--muted);font-weight:600}
+td.k{white-space:nowrap;width:1%}
+kbd,code{font:15px/1.4 ui-monospace,"JetBrainsMono Nerd Font",monospace;background:var(--key);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+kbd{border-bottom-width:2px}
+input[type=search]{width:100%;font:inherit;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);margin:14px 0 2px}
+.off{opacity:.6;text-decoration:line-through}.tag{font-size:13px;color:var(--muted)}
+a{color:var(--accent)}ul,ol{padding-left:24px}
+.hint{font-size:14px;color:var(--muted);margin-top:24px}
+@media print{body{background:#fff;color:#000;font-size:12pt}input,.hint{display:none}section{border:none;padding:0}h2{break-after:avoid}tr{break-inside:avoid}}
+</style>
+</head>
+<body>
+<main>
+<h1>@TITLE@</h1>
+<div class="sub">@SUBTITLE@</div>
+<div class="meta">@GENERATED@</div>
+<input type="search" id="q" placeholder="@SEARCH@" autofocus>
+<section id="custom"><h2>@CUSTOM_TITLE@</h2><div id="customBody"></div></section>
+<section id="all"><h2>@ALL_TITLE@</h2><div id="allBody"></div></section>
+<section id="official"><h2>@OFFICIAL_TITLE@</h2><div id="officialBody"></div></section>
+<p class="hint">@PRINT_HINT@</p>
+</main>
+<script type="application/json" id="data">@DATA@</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("data").textContent);
+  var T = D.text;
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"}[c]; }); }
+  function keys(chord) {
+    return chord.split(/\s*\+\s*/).map(function (k) { return "<kbd>" + esc(k.charAt(0) + k.slice(1).toLowerCase().replace(/^(.)/, function (m) { return m; })) + "</kbd>"; }).join(" + ");
+  }
+  function table(rows, extra) {
+    if (!rows.length) return "";
+    var h = "<table><thead><tr><th>" + esc(T.colKeys) + "</th><th>" + esc(T.colAction) + "</th></tr></thead><tbody>";
+    rows.forEach(function (r) {
+      h += "<tr data-s=\"" + esc((r.keys + " " + r.action).toLowerCase()) + "\"" + (r.off ? " class=\"off\"" : "") + "><td class=\"k\">" + keys(r.keys) + "</td><td>" + esc(r.action) + (r.off ? " <span class=\"tag\">(" + esc(T.customDisabled) + ")</span>" : "") + "</td></tr>";
+    });
+    return h + "</tbody></table>";
+  }
+  // Custom shortcuts
+  document.getElementById("customBody").innerHTML = D.custom.length ? table(D.custom) : "<p>" + esc(T.customNone) + "</p>";
+  // All shortcuts, grouped by plane (the modifiers), in Omarchy's order
+  var planes = [["SUPER", "plane.super"], ["SUPER+SHIFT", "plane.superShift"], ["SUPER+CTRL", "plane.superCtrl"],
+    ["SUPER+CTRL+ALT", "plane.superCtrlAlt"], ["SUPER+ALT", "plane.superAlt"], ["SUPER+SHIFT+ALT", "plane.superShiftAlt"]];
+  var order = ["SUPER", "CTRL", "SHIFT", "ALT"];
+  function planeOf(chord) {
+    var mods = chord.toUpperCase().split(/\s*\+\s*/).slice(0, -1).map(function (m) { return m === "CONTROL" ? "CTRL" : m; });
+    mods.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+    var key = mods.join("+");
+    if (key === "SUPER+CTRL+SHIFT+ALT") key = "SUPER+CTRL+ALT";
+    for (var i = 0; i < planes.length; i++) if (planes[i][0] === key) return planes[i][1];
+    return "plane.other";
+  }
+  var groups = {};
+  D.all.forEach(function (r) { var p = planeOf(r.keys); (groups[p] = groups[p] || []).push(r); });
+  var html = "";
+  planes.concat([["", "plane.other"]]).forEach(function (p) {
+    if (groups[p[1]]) html += "<h3>" + esc(T[p[1]]) + "</h3>" + table(groups[p[1]]);
+  });
+  document.getElementById("allBody").innerHTML = html;
+  // Omarchy's own manual chapter (Markdown) — a small renderer for what it uses:
+  // headings, paragraphs, lists, tables, code, bold, links.
+  function inline(s) {
+    var out = esc(s);
+    out = out.replace(/`([^`]+)`/g, function (m, c) { return /^(Super|Ctrl|Alt|Shift|Print|Tab)\b/.test(c) ? keys(c) : "<code>" + c + "</code>"; });
+    out = out.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, t, u) { return /^https?:/.test(u) ? "<a href=\"" + u + "\">" + t + "</a>" : t; });
+    return out;
+  }
+  function markdown(md) {
+    var lines = md.replace(/\r/g, "").split("\n"), h = "", i = 0;
+    while (i < lines.length) {
+      var l = lines[i];
+      if (/^\s*$/.test(l)) { i++; continue; }
+      var m = l.match(/^(#{1,4})\s+(.*)$/);
+      if (m) { var n = Math.min(m[1].length + 1, 4); if (m[1].length > 1) h += "<h" + n + ">" + inline(m[2]) + "</h" + n + ">"; i++; continue; }
+      if (/^\|/.test(l)) {
+        var rows = [];
+        while (i < lines.length && /^\|/.test(lines[i])) { rows.push(lines[i]); i++; }
+        var cells = function (r) { return r.replace(/^\||\|\s*$/g, "").split("|").map(function (c) { return c.trim(); }); };
+        h += "<table><thead><tr>" + cells(rows[0]).map(function (c) { return "<th>" + inline(c) + "</th>"; }).join("") + "</tr></thead><tbody>";
+        rows.slice(2).forEach(function (r) { h += "<tr data-s=\"" + esc(r.toLowerCase()) + "\">" + cells(r).map(function (c, j) { return "<td" + (j === 0 ? " class=\"k\"" : "") + ">" + inline(c) + "</td>"; }).join("") + "</tr>"; });
+        h += "</tbody></table>"; continue;
+      }
+      if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
+        var ordered = /^\s*\d+\./.test(l), items = [];
+        while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) { items.push(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, "")); i++; }
+        h += (ordered ? "<ol>" : "<ul>") + items.map(function (t) { return "<li>" + inline(t) + "</li>"; }).join("") + (ordered ? "</ol>" : "</ul>"); continue;
+      }
+      if (/^```/.test(l)) {
+        var code = []; i++;
+        while (i < lines.length && !/^```/.test(lines[i])) { code.push(lines[i]); i++; }
+        i++; h += "<pre><code>" + esc(code.join("\n")) + "</code></pre>"; continue;
+      }
+      var para = [];
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#|\||```|\s*([-*]|\d+\.)\s)/.test(lines[i])) { para.push(lines[i]); i++; }
+      h += "<p>" + inline(para.join(" ")) + "</p>";
+    }
+    return h;
+  }
+  document.getElementById("officialBody").innerHTML = D.official ? markdown(D.official) : "<p>" + esc(T.officialMissing) + "</p>";
+  // Search filters every table row on the page.
+  document.getElementById("q").addEventListener("input", function () {
+    var q = this.value.trim().toLowerCase();
+    Array.prototype.forEach.call(document.querySelectorAll("tr[data-s]"), function (tr) {
+      tr.style.display = !q || tr.getAttribute("data-s").indexOf(q) !== -1 ? "" : "none";
+    });
+  });
+})();
+</script>
+</body>
+</html>

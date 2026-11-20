@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Custom hotkeys
+Name[zh_CN]=自定义快捷键
+Name[zh_TW]=自訂快捷鍵
+Name[zh_HK]=自訂快捷鍵
+Comment=Add, replace or turn off Omarchy shortcuts
+Comment[zh_CN]=添加、替换或关闭 Omarchy 快捷键
+Comment[zh_TW]=新增、取代或關閉 Omarchy 快捷鍵
+Exec=@BIN@ menu
+Icon=preferences-desktop-keyboard-shortcuts
+Terminal=false
+Categories=Utility;Settings;
+Keywords=hotkeys;shortcuts;keybindings;keyboard;快捷键;快捷鍵;热键;

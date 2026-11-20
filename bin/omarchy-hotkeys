@@ -1,0 +1,379 @@
+#!/bin/bash
+# Omarchy_Hotkeys — hotkey manual and custom hotkeys for Omarchy, in the system language.
+#
+#   omarchy-hotkeys manual [--no-open]          write the manual (HTML) and open it
+#   omarchy-hotkeys menu                        add / remove / turn off hotkeys, step by step
+#   omarchy-hotkeys add "<keys>" "<what it does>" "<command>" [--force]
+#   omarchy-hotkeys remove "<keys>"             remove one of your hotkeys (or undo a turn-off)
+#   omarchy-hotkeys disable "<keys>"            turn off one of Omarchy's default hotkeys
+#   omarchy-hotkeys list                        your custom hotkeys
+#   omarchy-hotkeys edit                        open the settings file
+#   omarchy-hotkeys apply                       rebuild the Hyprland file from the settings file
+#   omarchy-hotkeys uninstall | version
+#
+# Your hotkeys live in ~/.config/omarchy-hotkeys/hotkeys.conf, one per line:
+#   SUPER + ALT + T | Terminal | ghostty          add (or replace a default)
+#   SUPER + SHIFT + B | disable                   turn a default off
+# `apply` turns it into ~/.local/state/omarchy/toggles/hypr/zz-omarchy-hotkeys.lua,
+# a folder Omarchy loads after its own bindings, so no Omarchy or ~/.config/hypr file is edited.
+set -uo pipefail
+
+VERSION=1.0.0
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+APP_DIR="$(dirname "$(dirname "$SELF")")"
+CONFIG_DIR="$HOME/.config/omarchy-hotkeys"
+CONFIG="$CONFIG_DIR/hotkeys.conf"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}"
+TOGGLE="$STATE/omarchy/toggles/hypr/zz-omarchy-hotkeys.lua"
+OUT_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/omarchy-hotkeys"
+OMARCHY="${OMARCHY_PATH:-/usr/share/omarchy}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# ------------------------------------------------------------------ language --
+# Omarchy's own language choice first (Setup > Region > Language), then LANG.
+lang_code() {
+  local code=""
+  have omarchy-language && code="$(omarchy-language 2>/dev/null)"
+  [[ -z $code && -f $HOME/.config/omarchy/language ]] && code="$(cat "$HOME/.config/omarchy/language")"
+  if [[ -z $code ]]; then
+    local l="${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}"
+    l="${l%%.*}"
+    case $l in
+      zh_TW* | zh_HK* | zh_MO*) code=zh-TW ;;
+      zh*) code=zh-CN ;;
+      *) code="${l%%_*}" ;;
+    esac
+  fi
+  [[ $code =~ ^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$ ]] || code=en
+  echo "$code"
+}
+
+LANG_CODE="$(lang_code)"
+CATALOG="$APP_DIR/i18n/$LANG_CODE.json"
+[[ -f $CATALOG ]] || CATALOG="$APP_DIR/i18n/${LANG_CODE%%-*}.json"
+[[ -f $CATALOG ]] || CATALOG="$APP_DIR/i18n/en.json"
+
+# t <key> [args...]: a string in the current language, %1 %2 ... filled in.
+t() {
+  local key="$1" s i=1
+  shift
+  s="$(jq -r --arg k "$key" '.[$k] // empty' "$CATALOG" 2>/dev/null)"
+  [[ -n $s ]] || s="$(jq -r --arg k "$key" '.[$k] // $k' "$APP_DIR/i18n/en.json")"
+  for a in "$@"; do s="${s//%$i/$a}"; i=$((i + 1)); done
+  printf '%s' "$s"
+}
+
+notify() {
+  if have omarchy-notification-send; then omarchy-notification-send -g 󰌌 "$1" "${2:-}" >/dev/null 2>&1 || true; fi
+}
+say() { printf '%s\n' "$*"; }
+die() { printf '%s\n' "$*" >&2; exit 1; }
+
+reload_hypr() {
+  if have omarchy-restart-hyprctl; then omarchy-restart-hyprctl; else hyprctl reload >/dev/null 2>&1 || true; fi
+}
+
+# -------------------------------------------------------------- key chords --
+# normalize "super+alt + t" -> "SUPER + ALT + T"; fails on anything that isn't a chord.
+normalize_keys() {
+  local raw="$1" part out=() key="" n=0
+  [[ $raw =~ ^[A-Za-z0-9_:+\ ]+$ ]] || return 1
+  IFS='+' read -r -a parts <<<"$raw"
+  for part in "${parts[@]}"; do
+    part="${part// /}"
+    [[ -n $part ]] || return 1
+    n=$((n + 1))
+    case ${part^^} in
+      SUPER | SHIFT | ALT | CTRL) out+=("${part^^}") ;;
+      CONTROL) out+=(CTRL) ;;
+      *)
+        [[ -z $key ]] || return 1
+        if [[ $part =~ ^(code|mouse):[0-9]+$ || $part =~ ^mouse_(up|down|left|right)$ ]]; then key="$part"
+        elif ((${#part} == 1)); then key="${part^^}"
+        else key="${part^^}"; fi
+        ;;
+    esac
+  done
+  [[ -n $key ]] || return 1
+  # Modifiers in Omarchy's order, then the key.
+  local sorted=()
+  for m in SUPER CTRL SHIFT ALT; do [[ " ${out[*]} " == *" $m "* ]] && sorted+=("$m"); done
+  sorted+=("$key")
+  local IFS='+'
+  printf '%s' "${sorted[*]}" | sed 's/+/ + /g'
+}
+
+modmask_of() {
+  local m=0
+  [[ $1 == *SUPER* ]] && m=$((m + 64))
+  [[ $1 == *CTRL* ]] && m=$((m + 4))
+  [[ $1 == *ALT* ]] && m=$((m + 8))
+  [[ $1 == *SHIFT* ]] && m=$((m + 1))
+  echo $m
+}
+
+# What a chord currently does on this desktop (from Hyprland), or nothing.
+current_action() {
+  local keys="$1" mask key
+  have hyprctl || return 0
+  mask="$(modmask_of "$keys")"
+  key="${keys##* + }"
+  hyprctl binds -j 2>/dev/null | jq -r --argjson m "$mask" --arg k "$key" '
+    [.[] | select(.modmask == $m and ((.key // "") | ascii_upcase) == ($k | ascii_upcase))]
+    | first | if . then (.description // "") as $d | if $d != "" then $d else ((.dispatcher // "") + " " + (.arg // "")) end else empty end' 2>/dev/null
+}
+
+# --------------------------------------------------------------- settings --
+ensure_config() {
+  [[ -f $CONFIG ]] && return
+  mkdir -p "$CONFIG_DIR"
+  cat >"$CONFIG" <<'EOF'
+# Omarchy_Hotkeys — your hotkeys / 你的自定义快捷键
+# One per line · 每行一个:
+#   SUPER + ALT + T | Terminal | ghostty          add or replace · 添加或替换
+#   SUPER + SHIFT + B | disable                   turn a default off · 关闭默认快捷键
+# Then run · 改完运行: omarchy-hotkeys apply
+EOF
+}
+
+# Lines as "keys<TAB>desc<TAB>cmd" (cmd "disable" = turned off).
+entries() {
+  [[ -f $CONFIG ]] || return 0
+  awk -F'|' '
+    /^[[:space:]]*(#|$)/ { next }
+    {
+      for (i = 1; i <= NF; i++) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+      if (NF == 2 && tolower($2) == "disable") print $1 "\t-\tdisable"
+      else if (NF >= 3) { cmd = $3; for (i = 4; i <= NF; i++) cmd = cmd "|" $i; print $1 "\t" $2 "\t" cmd }
+    }' "$CONFIG"
+}
+
+remove_line() { # remove_line <normalized keys>
+  local keys="$1" tmp line k
+  tmp="$(mktemp)"
+  while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*(#|$) ]]; then printf '%s\n' "$line"; continue; fi
+    k="$(normalize_keys "${line%%|*}" 2>/dev/null)"
+    [[ $k == "$keys" ]] || printf '%s\n' "$line"
+  done <"$CONFIG" >"$tmp"
+  mv "$tmp" "$CONFIG"
+}
+
+lua_str() { jq -Rn --arg v "$1" '$v'; }
+
+cmd_apply() {
+  ensure_config
+  mkdir -p "$(dirname "$TOGGLE")"
+  local keys desc cmd n=0
+  {
+    echo "-- Generated by omarchy-hotkeys from $CONFIG. Do not edit: run omarchy-hotkeys edit / apply."
+    while IFS=$'\t' read -r keys desc cmd; do
+      keys="$(normalize_keys "$keys")" || continue
+      [[ $desc$cmd =~ [[:cntrl:]] ]] && continue
+      if [[ $cmd == disable ]]; then
+        echo "hl.unbind($(lua_str "$keys"))"
+      else
+        echo "o.rebind($(lua_str "$keys"), $(lua_str "$desc"), $(lua_str "$cmd"))"
+      fi
+      n=$((n + 1))
+    done < <(entries)
+  } >"$TOGGLE.tmp" && mv "$TOGGLE.tmp" "$TOGGLE"
+  reload_hypr
+  return 0
+}
+
+valid_text() { [[ -n $1 && $1 != *"|"* && $1 != *$'\n'* && ! $1 =~ [[:cntrl:]] ]]; }
+
+cmd_add() {
+  local keys desc="${2:-}" cmd="${3:-}" force="${4:-}" now
+  keys="$(normalize_keys "${1:-}")" || die "$(t badKeys "${1:-}")"
+  valid_text "$desc" && valid_text "$cmd" || die "$(t badText)"
+  [[ $keys == *" + "* && ($keys == *SUPER* || $keys == *CTRL* || $keys == *ALT*) ]] || say "$(t noModifier "$keys")"
+  ensure_config
+  now="$(current_action "$keys")"
+  local mine=""
+  while IFS=$'\t' read -r k d c; do [[ $(normalize_keys "$k" 2>/dev/null) == "$keys" ]] && mine="$d"; done < <(entries)
+  if [[ -n $now && $now != "$mine" && $force != --force ]]; then
+    die "$(t conflict "$keys" "$now")"
+  fi
+  remove_line "$keys"
+  printf '%s | %s | %s\n' "$keys" "$desc" "$cmd" >>"$CONFIG"
+  cmd_apply
+  if [[ -n $now && $now != "$mine" ]]; then say "$(t replaced "$keys" "$desc" "$now")"; else say "$(t added "$keys" "$desc")"; fi
+  notify "$(t added "$keys" "$desc")"
+}
+
+cmd_disable() {
+  local keys
+  keys="$(normalize_keys "${1:-}")" || die "$(t badKeys "${1:-}")"
+  ensure_config
+  remove_line "$keys"
+  printf '%s | disable\n' "$keys" >>"$CONFIG"
+  cmd_apply
+  say "$(t disabled "$keys")"
+  notify "$(t disabled "$keys")"
+}
+
+cmd_remove() {
+  local keys found=""
+  keys="$(normalize_keys "${1:-}")" || die "$(t badKeys "${1:-}")"
+  while IFS=$'\t' read -r k d c; do [[ $(normalize_keys "$k" 2>/dev/null) == "$keys" ]] && found="$c"; done < <(entries)
+  [[ -n $found ]] || die "$(t notFound "$keys")"
+  remove_line "$keys"
+  cmd_apply
+  if [[ $found == disable ]]; then say "$(t restored "$keys")"; else say "$(t removed "$keys")"; fi
+  notify "$(t removed "$keys")"
+}
+
+cmd_list() {
+  local any=0 k d c
+  while IFS=$'\t' read -r k d c; do
+    any=1
+    if [[ $c == disable ]]; then printf '%-28s %s\n' "$(normalize_keys "$k")" "($(t customDisabled))"
+    else printf '%-28s %s  →  %s\n' "$(normalize_keys "$k")" "$d" "$c"; fi
+  done < <(entries)
+  ((any)) || say "$(t listEmpty)"
+}
+
+# ------------------------------------------------------------------ manual --
+official_chapter() {
+  local f
+  for f in "$OMARCHY/manual/$LANG_CODE"/*hotkeys*.md "$OMARCHY/manual/${LANG_CODE%%-*}"/*hotkeys*.md "$OMARCHY/manual"/*hotkeys*.md; do
+    [[ -f $f ]] && { cat "$f"; return; }
+  done
+}
+
+cmd_manual() {
+  local open=1
+  [[ ${1:-} == --no-open ]] && open=0
+  mkdir -p "$OUT_DIR"
+  local html="$OUT_DIR/manual-$LANG_CODE.html" all custom official text data
+  # Every live binding, descriptions already in the system language (Omarchy's catalogs).
+  all="$( (have omarchy-menu-keybindings && omarchy-menu-keybindings --print 2>/dev/null) |
+    jq -R -s '[split("\n")[] | select(contains(" → ")) | split(" → ") as $p
+      | {keys: ($p[0] | gsub("\\s+$"; "")), action: ($p[1:] | join(" → "))}]')"
+  [[ -n $all ]] || all='[]'
+  custom="$(entries | jq -R -s '[split("\n")[] | select(length > 0) | split("\t")
+      | {keys: .[0], action: (if .[2] == "disable" then "" else .[1] end), off: (.[2] == "disable")}]')"
+  # Disabled rows show what they used to do, struck through.
+  custom="$(jq --argjson all "$all" '[.[] | .keys as $k | if .off then .action = ((($all | map(select(.keys == $k)) | .[0].action)) // "") else . end]' <<<"$custom")"
+  official="$(official_chapter | jq -R -s '.')"
+  text="$(jq -s '.[0] * .[1]' "$APP_DIR/i18n/en.json" "$CATALOG")"
+  data="$(jq -cn --argjson all "$all" --argjson custom "$custom" --argjson official "$official" --argjson text "$text" \
+    '{all: $all, custom: $custom, official: (if $official == "" then null else $official end), text: $text}' | sed 's#</#<\\/#g')"
+  local count
+  count="$(jq length <<<"$all")"
+  local stamp
+  stamp="$(LC_TIME="$( (have omarchy-language && omarchy-language locale 2>/dev/null) || echo C)" date '+%x %H:%M' 2>/dev/null || date)"
+  # Fill the template. Values go through a file so no character in them is special to sed.
+  fill_template() {
+    local tpl="$1" key val
+    local content
+    content="$(cat "$tpl")"
+    while IFS=$'\t' read -r key val; do
+      content="${content//@$key@/$val}"
+    done
+    printf '%s' "$content"
+  }
+  {
+    printf 'LANG\t%s\n' "$LANG_CODE"
+    printf 'TITLE\t%s\n' "$(t title | sed 's/[&<>]/ /g')"
+    printf 'SUBTITLE\t%s\n' "$(t subtitle | sed 's/[&<>]/ /g')"
+    printf 'GENERATED\t%s\n' "$(t generated "$stamp" "$LANG_CODE" | sed 's/[&<>]/ /g')"
+    printf 'SEARCH\t%s\n' "$(t search | sed 's/[&<>"]/ /g')"
+    printf 'CUSTOM_TITLE\t%s\n' "$(t customTitle | sed 's/[&<>]/ /g')"
+    printf 'ALL_TITLE\t%s\n' "$(t allTitle "$count" | sed 's/[&<>]/ /g')"
+    printf 'OFFICIAL_TITLE\t%s\n' "$(t officialTitle | sed 's/[&<>]/ /g')"
+    printf 'PRINT_HINT\t%s\n' "$(t printHint | sed 's/[&<>]/ /g')"
+  } | fill_template "$APP_DIR/share/manual.html" >"$html.tmp"
+  # The data block last, as a whole, so nothing inside it is treated as a placeholder.
+  awk -v datafile=<(printf '%s' "$data") '
+    BEGIN { while ((getline line < datafile) > 0) data = data (data == "" ? "" : "\n") line }
+    { i = index($0, "@DATA@"); if (i) { print substr($0, 1, i - 1) data substr($0, i + 6) } else print }
+  ' "$html.tmp" >"$html" && rm -f "$html.tmp"
+  say "$(t manualWritten "$html")"
+  if ((open)); then
+    if have omarchy-launch-browser; then omarchy-launch-browser "file://$html" >/dev/null 2>&1 &
+    elif have xdg-open; then xdg-open "$html" >/dev/null 2>&1 &
+    fi
+  fi
+}
+
+# -------------------------------------------------------------------- menu --
+cmd_menu() {
+  # Needs a terminal for gum; from the launcher, open a floating one.
+  if [[ ! -t 0 ]] && have omarchy-launch-floating-terminal-with-presentation; then
+    exec omarchy-launch-floating-terminal-with-presentation "$SELF menu"
+  fi
+  have gum || die "gum is required"
+  while :; do
+    local choice
+    choice="$(gum choose --header "$(t menuTitle)" "$(t menuAdd)" "$(t menuRemove)" "$(t menuDisable)" "$(t menuList)" "$(t menuManual)" "$(t menuQuit)")" || return 0
+    case $choice in
+      "$(t menuAdd)")
+        local keys desc cmd now
+        keys="$(gum input --header "$(t promptKeys)" --placeholder "SUPER + ALT + T")" || continue
+        keys="$(normalize_keys "$keys")" || { gum style --foreground 1 "$(t badKeys "$keys")"; continue; }
+        desc="$(gum input --header "$(t promptDesc)")" || continue
+        cmd="$(gum input --header "$(t promptCmd)" --width 80)" || continue
+        now="$(current_action "$keys")"
+        if [[ -n $now ]]; then
+          gum confirm "$(t askReplace "$keys" "$now")" || continue
+          cmd_add "$keys" "$desc" "$cmd" --force || true
+        else
+          cmd_add "$keys" "$desc" "$cmd" || true
+        fi
+        ;;
+      "$(t menuRemove)")
+        local rows pick
+        rows="$(entries | awk -F'\t' '{ print $1 "   " ($3 == "disable" ? "(-)" : $2) }')"
+        [[ -n $rows ]] || { say "$(t listEmpty)"; continue; }
+        pick="$(gum choose --header "$(t pickRemove)" <<<"$rows")" || continue
+        cmd_remove "${pick%%   *}" || true
+        ;;
+      "$(t menuDisable)")
+        local live pick
+        live="$( (have omarchy-menu-keybindings && omarchy-menu-keybindings --print 2>/dev/null) | grep ' → ')"
+        pick="$(gum filter --header "$(t pickDisable)" <<<"$live")" || continue
+        cmd_disable "$(sed 's/ *→.*//' <<<"$pick")" || true
+        ;;
+      "$(t menuList)") cmd_list; gum input --placeholder "↵" >/dev/null || true ;;
+      "$(t menuManual)") cmd_manual ;;
+      *) return 0 ;;
+    esac
+  done
+}
+
+cmd_edit() {
+  ensure_config
+  if have omarchy-launch-editor; then omarchy-launch-editor "$CONFIG"; else "${EDITOR:-nano}" "$CONFIG"; fi
+  say "omarchy-hotkeys apply"
+}
+
+cmd_uninstall() {
+  rm -f "$TOGGLE"
+  rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/omarchy-hotkeys-manual.desktop" \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/applications/omarchy-hotkeys-custom.desktop"
+  [[ -L $HOME/.local/bin/omarchy-hotkeys ]] && rm -f "$HOME/.local/bin/omarchy-hotkeys"
+  rm -rf "$OUT_DIR/manual-"*.html
+  reload_hypr
+  # Your hotkeys file stays, so a reinstall brings them back.
+  say "Omarchy_Hotkeys removed (kept $CONFIG)"
+  [[ $APP_DIR == "$HOME/.local/share/omarchy-hotkeys-app" ]] && rm -rf "$APP_DIR"
+}
+
+case "${1:-manual}" in
+  manual) cmd_manual "${2:-}" ;;
+  menu) cmd_menu ;;
+  add) cmd_add "${2:-}" "${3:-}" "${4:-}" "${5:-}" ;;
+  remove) cmd_remove "${2:-}" ;;
+  disable) cmd_disable "${2:-}" ;;
+  list) cmd_list ;;
+  edit) cmd_edit ;;
+  apply) cmd_apply ;;
+  uninstall) cmd_uninstall ;;
+  version | --version | -v) echo "Omarchy_Hotkeys $VERSION" ;;
+  help | --help | -h) sed -n '2,20p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  *) echo "omarchy-hotkeys help" >&2; exit 1 ;;
+esac
