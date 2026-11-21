@@ -66,5 +66,19 @@
  "docSuper": "如果按任何 Super 快捷键都完全没反应，可能是 Omarchy 外面的系统（Windows、虚拟机）抢走了 Super 键：先在 Omarchy 窗口里点一下，或试试 Omarchy 自带的 Super + K。",
  "docTest": "可以直接测试某个快捷键的命令：omarchy-hotkeys test \"快捷键\"",
  "testRunning": "正在运行 %1 的命令：%2",
- "menuDoctor": "检查快捷键为什么没反应"
+ "menuDoctor": "检查快捷键为什么没反应",
+ "wizWhat": "这个快捷键要做什么？",
+ "wizApp": "打开一个应用",
+ "wizWeb": "打开一个网页",
+ "wizCmd": "运行命令（高级）",
+ "wizPickApp": "选择应用（可以直接打字搜索）",
+ "wizUrl": "网址（例如 https://www.youtube.com）",
+ "wizPlane": "按住哪些键？",
+ "wizRecommended": "推荐",
+ "wizPickKey": "再选一个键（只列出还没被占用的）",
+ "wizNoFree": "这一组的键都被占用了，请换一组。",
+ "wizConfirm": "把 %1 设为：%2？",
+ "wizDone": "设好了！按 %1 试试。",
+ "badUrl": "这看起来不像网址（要以 https:// 开头）",
+ "wizBack": "← 返回"
 }

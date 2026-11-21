@@ -20,7 +20,7 @@
 # a folder Omarchy loads after its own bindings, so no Omarchy or ~/.config/hypr file is edited.
 set -uo pipefail
 
-VERSION=1.0.1
+VERSION=1.1.0
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 APP_DIR="$(dirname "$(dirname "$SELF")")"
 CONFIG_DIR="$HOME/.config/omarchy-hotkeys"
@@ -377,6 +377,106 @@ cmd_test() {
   rm -f "$log"
 }
 
+# ------------------------------------------------------------------ wizard --
+# Installed apps as "Name<TAB>desktop-id", names in the system language where the
+# entry has them. A user's entry hides the system one with the same id.
+list_apps() {
+  local loc="${LANG_CODE/-/_}" d
+  local dirs=("${XDG_DATA_HOME:-$HOME/.local/share}/applications")
+  IFS=: read -r -a sys <<<"${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+  for d in "${sys[@]}"; do dirs+=("$d/applications"); done
+  dirs+=("/var/lib/flatpak/exports/share/applications" "$HOME/.local/share/flatpak/exports/share/applications")
+  for d in "${dirs[@]}"; do
+    [[ -d $d ]] || continue
+    find "$d" -maxdepth 1 -name '*.desktop' -print0 2>/dev/null | while IFS= read -r -d '' f; do
+      awk -v id="$(basename "$f")" -v loc="$loc" -v lang="${loc%%_*}" -F= '
+        /^\[/ { sec = $0; next }
+        sec != "[Desktop Entry]" { next }
+        $1 == "Name" { name = substr($0, 6) }
+        $1 == "Name[" loc "]" { lname = substr($0, length($1) + 2) }
+        $1 == "Name[" lang "]" && lname == "" { lname = substr($0, length($1) + 2) }
+        $1 == "Type" && $2 != "Application" { skip = 1 }
+        ($1 == "NoDisplay" || $1 == "Hidden") && $2 == "true" { skip = 1 }
+        END { if (!skip && name != "") print (lname != "" ? lname : name) "\t" id }
+      ' "$f"
+    done
+  done | awk -F'\t' '!seen[$2]++' | sort -f
+}
+
+# Hyprland modifier masks for the groups the wizard offers, in Omarchy's order.
+PLANES=("SUPER + SHIFT:65:plane.superShift" "SUPER + CTRL + ALT:76:plane.superCtrlAlt" "SUPER:64:plane.super" "SUPER + CTRL:68:plane.superCtrl" "SUPER + ALT:72:plane.superAlt" "SUPER + SHIFT + ALT:73:plane.superShiftAlt")
+
+# Keys nobody uses yet with these modifiers (Hyprland's binds plus your own file).
+free_keys() {
+  local mods="$1" mask="$2" used k d c
+  used="$( (hyprctl binds -j 2>/dev/null || echo '[]') | jq -r --argjson m "$mask" '.[] | select(.modmask == $m) | (.key // "") | ascii_upcase')"
+  while IFS=$'\t' read -r k d c; do
+    k="$(normalize_keys "$k" 2>/dev/null)" || continue
+    [[ ${k% + *} == "$mods" ]] && used+=$'\n'"${k##* + }"
+  done < <(entries)
+  for k in {A..Z} {1..9} 0 F{1..12}; do
+    grep -qxF "$k" <<<"$used" || printf '%s\n' "$k"
+  done
+}
+
+shell_quote() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
+
+wizard_add() {
+  local kind cmd desc
+  kind="$(gum choose --header "$(t wizWhat)" "$(t wizApp)" "$(t wizWeb)" "$(t wizCmd)" "$(t wizBack)")" || return 0
+  case $kind in
+    "$(t wizApp)")
+      local apps pick id
+      apps="$(list_apps)"
+      pick="$(cut -f1 <<<"$apps" | gum filter --header "$(t wizPickApp)" --height 15)" || return 0
+      [[ -n $pick ]] || return 0
+      id="$(awk -F'\t' -v n="$pick" '$1 == n { print $2; exit }' <<<"$apps")"
+      [[ -n $id ]] || return 0
+      desc="$pick"
+      cmd="uwsm-app -- $(shell_quote "$id")"
+      ;;
+    "$(t wizWeb)")
+      local url
+      url="$(gum input --header "$(t wizUrl)" --placeholder "https://" --width 70)" || return 0
+      [[ $url =~ ^[a-z0-9.-]+\.[a-z]{2,}(/.*)?$ ]] && url="https://$url"
+      if [[ ! $url =~ ^https?://[^[:space:]\'|]+$ ]]; then gum style --foreground 1 "$(t badUrl)"; return 0; fi
+      desc="${url#*://}"; desc="${desc%%/*}"
+      cmd="omarchy-launch-webapp $(shell_quote "$url")"
+      ;;
+    "$(t wizCmd)")
+      cmd="$(gum input --header "$(t promptCmd)" --width 80)" || return 0
+      valid_text "$cmd" || { gum style --foreground 1 "$(t badText)"; return 0; }
+      desc="$(gum input --header "$(t promptDesc)" --value "$(command_program "$cmd")")" || return 0
+      valid_text "$desc" || desc="$(command_program "$cmd")"
+      ;;
+    *) return 0 ;;
+  esac
+  # Which modifiers: the group Omarchy uses for this kind of thing first.
+  local rows=() p mods mask label first=1
+  for p in "${PLANES[@]}"; do
+    IFS=: read -r mods mask label <<<"$p"
+    if ((first)) && [[ $kind != "$(t wizCmd)" ]]; then rows+=("$(t "$label") · $(t wizRecommended)"); else rows+=("$(t "$label")"); fi
+    [[ $kind == "$(t wizCmd)" && $mods == "SUPER + CTRL + ALT" ]] && rows[-1]="$(t "$label") · $(t wizRecommended)"
+    first=0
+  done
+  local plane keys key
+  while :; do
+    plane="$(gum choose --header "$(t wizPlane)" "${rows[@]}")" || return 0
+    for p in "${PLANES[@]}"; do
+      IFS=: read -r mods mask label <<<"$p"
+      [[ $plane == "$(t "$label")"* ]] && break
+    done
+    local free
+    free="$(free_keys "$mods" "$mask")"
+    if [[ -z $free ]]; then gum style --foreground 1 "$(t wizNoFree)"; continue; fi
+    key="$(gum choose --header "$(t wizPickKey)  ·  $mods + ?" $free)" || continue
+    break
+  done
+  keys="$mods + $key"
+  gum confirm "$(t wizConfirm "$keys" "$desc")" || return 0
+  cmd_add "$keys" "$desc" "$cmd" && say "$(t wizDone "$keys")" && notify "$(t wizDone "$keys")"
+}
+
 # -------------------------------------------------------------------- menu --
 cmd_menu() {
   # Needs a terminal for gum; from the launcher, open a floating one.
@@ -388,20 +488,7 @@ cmd_menu() {
     local choice
     choice="$(gum choose --header "$(t menuTitle)" "$(t menuAdd)" "$(t menuRemove)" "$(t menuDisable)" "$(t menuList)" "$(t menuDoctor)" "$(t menuManual)" "$(t menuQuit)")" || return 0
     case $choice in
-      "$(t menuAdd)")
-        local keys desc cmd now
-        keys="$(gum input --header "$(t promptKeys)" --placeholder "SUPER + ALT + T")" || continue
-        keys="$(normalize_keys "$keys")" || { gum style --foreground 1 "$(t badKeys "$keys")"; continue; }
-        desc="$(gum input --header "$(t promptDesc)")" || continue
-        cmd="$(gum input --header "$(t promptCmd)" --width 80)" || continue
-        now="$(current_action "$keys")"
-        if [[ -n $now ]]; then
-          gum confirm "$(t askReplace "$keys" "$now")" || continue
-          cmd_add "$keys" "$desc" "$cmd" --force || true
-        else
-          cmd_add "$keys" "$desc" "$cmd" || true
-        fi
-        ;;
+      "$(t menuAdd)") wizard_add || true ;;
       "$(t menuRemove)")
         local rows pick
         rows="$(entries | awk -F'\t' '{ print $1 "   " ($3 == "disable" ? "(-)" : $2) }')"
@@ -451,6 +538,9 @@ case "${1:-manual}" in
   edit) cmd_edit ;;
   apply) cmd_apply ;;
   doctor) cmd_doctor ;;
+  wizard) wizard_add ;;
+  apps) list_apps ;;
+  free) free_keys "${2:-}" "${3:-}" ;;
   test) cmd_test "${2:-}" ;;
   uninstall) cmd_uninstall ;;
   version | --version | -v) echo "Omarchy_Hotkeys $VERSION" ;;

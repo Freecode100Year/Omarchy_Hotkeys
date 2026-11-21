@@ -38,6 +38,7 @@ echo "install"
 bash "$ROOT/install.sh" >"$T/install.log" 2>&1 || { bad "install failed"; cat "$T/install.log"; }
 check "command linked" "[[ -x $H ]]"
 check "two launcher apps, pointing at the program" "grep -q '^Exec=$HOME/.local/share/omarchy-hotkeys-app/bin/omarchy-hotkeys manual' $XDG_DATA_HOME/applications/omarchy-hotkeys-manual.desktop && grep -q 'Name\[zh_CN\]=自定义快捷键' $XDG_DATA_HOME/applications/omarchy-hotkeys-custom.desktop"
+check "launcher apps use the project icon" "grep -q '^Icon=$HOME/.local/share/omarchy-hotkeys-app/assets/icon.svg' $XDG_DATA_HOME/applications/omarchy-hotkeys-manual.desktop && [[ -f $HOME/.local/share/omarchy-hotkeys-app/assets/icon.svg ]]"
 check "Hyprland file written and reloaded" "[[ -f $LUA ]] && grep -q reload $S/reloads"
 check "install message in Chinese" "grep -q '快捷键工具已安装' $T/install.log"
 
@@ -112,6 +113,29 @@ $H add "SUPER + ALT + E" "回显" "echo hotkey-test-ok" --force >/dev/null 2>&1
 $H test "SUPER + ALT + E" >"$T/o" 2>&1
 check "test runs the command and shows its output" "grep -q 'hotkey-test-ok' $T/o"
 $H remove "SUPER + ALT + M" >/dev/null; $H remove "SUPER + ALT + E" >/dev/null
+
+echo "wizard"
+# gum stand-in: each call takes the next scripted answer; confirm answers y/n.
+stub gum "a=\$(head -1 $S/gum); sed -i 1d $S/gum; echo \"\$1 \$a\" >>$S/gum.log; if [[ \$1 == confirm ]]; then [[ \$a == y ]]; elif [[ \$1 == style ]]; then echo \"\${@: -1}\"; else [[ \$a == CANCEL ]] && exit 1; printf '%s\\n' \"\$a\"; fi"
+mkdir -p "$XDG_DATA_HOME/applications"
+printf '[Desktop Entry]\nType=Application\nName=Text Editor\nName[zh_CN]=文本编辑器\nExec=edit\n' >"$XDG_DATA_HOME/applications/org.example.Editor.desktop"
+printf '[Desktop Entry]\nType=Application\nName=Hidden thing\nNoDisplay=true\n' >"$XDG_DATA_HOME/applications/hidden.desktop"
+printf '%s\n' "打开一个应用" "文本编辑器" "Super + Shift：打开应用 · 推荐" "E" "y" >"$S/gum"
+$H wizard >"$T/o" 2>&1
+check "wizard: app picked by its Chinese name, free key, saved" "grep -q \"^SUPER + SHIFT + E | 文本编辑器 | uwsm-app -- 'org.example.Editor.desktop'\$\" $CONF && grep -q '设好了！按 SUPER + SHIFT + E 试试' $T/o"
+check "wizard: hidden apps not offered" "! $H apps 2>/dev/null | grep -q 'Hidden thing' && $H apps | grep -q '文本编辑器'"
+check "wizard: B is taken by the browser, so not offered" "$H free 'SUPER + SHIFT' 65 >$T/free; ! grep -qx B $T/free && grep -qx C $T/free"
+printf '%s\n' "打开一个网页" "youtube.com/feed" "Super + Ctrl + Alt：快捷操作" "Y" "y" >"$S/gum"
+$H wizard >"$T/o" 2>&1
+check "wizard: web page, https added, host as label" "grep -q \"^SUPER + CTRL + ALT + Y | youtube.com | omarchy-launch-webapp 'https://youtube.com/feed'\$\" $CONF"
+printf '%s\n' "打开一个网页" "not a url" >"$S/gum"
+$H wizard >"$T/o" 2>&1
+check "wizard: bad web address refused" "grep -q '不像网址' $T/o && ! grep -q 'not a url' $CONF"
+printf '%s\n' "打开一个应用" "文本编辑器" "Super + Shift：打开应用 · 推荐" "F" "n" >"$S/gum"
+$H wizard >/dev/null 2>&1
+check "wizard: saying no at the end saves nothing" "! grep -q '^SUPER + SHIFT + F |' $CONF"
+check "wizard file still valid Lua" "lua_ok"
+$H remove "SUPER + SHIFT + E" >/dev/null; $H remove "SUPER + CTRL + ALT + Y" >/dev/null
 
 echo "uninstall"
 echo zh-CN >"$S/lang"

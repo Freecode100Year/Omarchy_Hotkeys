@@ -32,7 +32,7 @@ chmod +x "$APP_DIR/bin/omarchy-hotkeys"
 mkdir -p "$HOME/.local/bin" "$APPS"
 ln -sfn "$APP_DIR/bin/omarchy-hotkeys" "$HOME/.local/bin/omarchy-hotkeys"
 for f in "$APP_DIR"/applications/*.desktop; do
-  sed "s#@BIN@#$APP_DIR/bin/omarchy-hotkeys#g" "$f" >"$APPS/$(basename "$f")"
+  sed -e "s#@BIN@#$APP_DIR/bin/omarchy-hotkeys#g" -e "s#@ICON@#$APP_DIR/assets/icon.svg#g" "$f" >"$APPS/$(basename "$f")"
 done
 command -v update-desktop-database >/dev/null && update-desktop-database -q "$APPS" 2>/dev/null || true
 

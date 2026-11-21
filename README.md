@@ -1,6 +1,18 @@
-# Omarchy_Hotkeys
+![Omarchy_Hotkeys](docs/banner.jpg)
 
-[Omarchy](https://omarchy.org) 的快捷键说明书和自定义快捷键工具，界面跟随系统语言。
+# <img src="assets/icon.svg" width="48" align="center" alt=""> Omarchy_Hotkeys
+
+[Omarchy](https://omarchy.org) 的快捷键说明书和自定义快捷键工具，界面跟随系统语言。设定快捷键全程点选，不用写命令。
+
+## 三步设定一个快捷键
+
+在应用启动器（`Super + Space`）里打开「自定义快捷键」，选「添加快捷键」：
+
+1. 这个快捷键要做什么：打开一个应用 / 打开一个网页 / 运行命令（高级）
+2. 选应用（显示中文名，可以打字搜索），或填网址
+3. 选按住哪些键（推荐的排在最前），再选一个键：列表里只有还没被占用的键，不会和已有快捷键冲突
+
+确认后马上生效，并告诉你按哪个组合试试。
 
 ![快捷键说明书](docs/screenshot-zh-CN.png)
 
