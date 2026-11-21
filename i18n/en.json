@@ -80,5 +80,17 @@
  "wizConfirm": "Set %1 to: %2?",
  "wizDone": "Done! Press %1 to try it.",
  "badUrl": "That does not look like a web address (it should start with https://)",
- "wizBack": "← Back"
+ "wizBack": "← Back",
+ "recPrompt": "Now press the key combination you want, e.g. Super + F1   (Esc cancels, 20 seconds)",
+ "recGot": "You pressed: %1",
+ "recUsed": "It is used now for \"%1\" — saving replaces it.",
+ "recFree": "It is free.",
+ "recSave": "Save",
+ "recAgain": "Press again",
+ "recCancel": "Cancel",
+ "recTimeout": "No key was pressed.",
+ "recCancelled": "Cancelled.",
+ "recUnavailable": "Recording keys needs Hyprland; pick the keys from a list instead.",
+ "recManual": "Pick from a list instead",
+ "recDoes": "It will: %1"
 }

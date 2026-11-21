@@ -80,5 +80,17 @@
  "wizConfirm": "把 %1 設為：%2？",
  "wizDone": "設好了！按 %1 試試。",
  "badUrl": "這看起來不像網址（要以 https:// 開頭）",
- "wizBack": "← 返回"
+ "wizBack": "← 返回",
+ "recPrompt": "現在在鍵盤上按下你想用的組合鍵，例如 Super + F1   （按 Esc 取消，20 秒內）",
+ "recGot": "你按的是：%1",
+ "recUsed": "它現在用於「%1」，儲存後會取代。",
+ "recFree": "這個組合還沒被佔用。",
+ "recSave": "儲存",
+ "recAgain": "重新按",
+ "recCancel": "取消",
+ "recTimeout": "沒有按任何鍵。",
+ "recCancelled": "已取消。",
+ "recUnavailable": "錄製按鍵需要 Hyprland；改為從清單裡選。",
+ "recManual": "改為從清單裡選",
+ "recDoes": "作用：%1"
 }
