@@ -73,6 +73,8 @@
  "wizCmd": "运行命令（高级）",
  "wizPickApp": "选择应用（可以直接打字搜索）",
  "wizUrl": "网址（例如 https://www.youtube.com）",
+ "wizUrlPaste": "按 SUPER + V 粘贴网址",
+ "wizUrlFilled": "已自动填入你刚复制的网址，按回车确认（Ctrl + U 清空重填）",
  "wizPlane": "按住哪些键？",
  "wizRecommended": "推荐",
  "wizPickKey": "再选一个键（只列出还没被占用的）",

@@ -73,6 +73,8 @@
  "wizCmd": "Run a command (advanced)",
  "wizPickApp": "Pick the app (type to search)",
  "wizUrl": "Web address (e.g. https://www.youtube.com)",
+ "wizUrlPaste": "Press SUPER + V to paste the address",
+ "wizUrlFilled": "Filled in from your clipboard — press Enter to confirm (Ctrl + U to clear)",
  "wizPlane": "Which keys do you hold down?",
  "wizRecommended": "recommended",
  "wizPickKey": "Pick the last key (only free keys are listed)",

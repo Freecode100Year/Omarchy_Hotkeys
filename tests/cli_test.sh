@@ -116,7 +116,7 @@ $H remove "SUPER + ALT + M" >/dev/null; $H remove "SUPER + ALT + E" >/dev/null
 
 echo "wizard"
 # gum stand-in: each call takes the next scripted answer; confirm answers y/n.
-stub gum "if [[ \$1 == style ]]; then echo \"\${@: -1}\"; exit 0; fi; a=\$(head -1 $S/gum); sed -i 1d $S/gum; echo \"\$1 \$a\" >>$S/gum.log; if [[ \$1 == confirm ]]; then [[ \$a == y ]]; else [[ \$a == CANCEL ]] && exit 1; printf '%s\\n' \"\$a\"; fi"
+stub gum "if [[ \$1 == style ]]; then echo \"\${@: -1}\"; exit 0; fi; a=\$(head -1 $S/gum); sed -i 1d $S/gum; echo \"\$1 \$a\" >>$S/gum.log; printf '%s\\n' \"\$*\" >>$S/gum.args; if [[ \$1 == confirm ]]; then [[ \$a == y ]]; else [[ \$a == CANCEL ]] && exit 1; printf '%s\\n' \"\$a\"; fi"
 mkdir -p "$XDG_DATA_HOME/applications"
 printf '[Desktop Entry]\nType=Application\nName=Text Editor\nName[zh_CN]=文本编辑器\nExec=edit\n' >"$XDG_DATA_HOME/applications/org.example.Editor.desktop"
 printf '[Desktop Entry]\nType=Application\nName=Hidden thing\nNoDisplay=true\n' >"$XDG_DATA_HOME/applications/hidden.desktop"
@@ -128,6 +128,17 @@ check "wizard: B is taken by the browser, so not offered" "$H free 'SUPER + SHIF
 printf '%s\n' "打开一个网页" "youtube.com/feed" "Super + Ctrl + Alt：快捷操作" "Y" "保存" >"$S/gum"
 $H wizard >"$T/o" 2>&1
 check "wizard: web page, https added, host as label" "grep -q \"^SUPER + CTRL + ALT + Y | youtube.com | omarchy-launch-webapp 'https://youtube.com/feed'\$\" $CONF"
+# SUPER + V hint, and a web address already on the clipboard is filled in.
+stub wl-paste "cat $S/clip 2>/dev/null"
+printf '%s' "https://news.example.com/today" >"$S/clip"; : >"$S/gum.args"
+printf '%s\n' "打开一个网页" "https://news.example.com/today" "Super + Ctrl + Alt：快捷操作" "N" "保存" >"$S/gum"
+$H wizard >"$T/o" 2>&1
+check "wizard: clipboard web address filled in, SUPER + V hint shown" "grep -q -- '--value https://news.example.com/today' $S/gum.args && grep -q 'SUPER + V 粘贴网址' $S/gum.args && grep -q \"omarchy-launch-webapp 'https://news.example.com/today'\" $CONF"
+printf '%s' "echo hi; rm -rf ~" >"$S/clip"; : >"$S/gum.args"
+printf '%s\n' "打开一个网页" "CANCEL" >"$S/gum"
+$H wizard >/dev/null 2>&1
+check "wizard: clipboard that is not a web address is not filled in" "grep -q -- '--value  --width' $S/gum.args && ! grep -q 'rm -rf' $S/gum.args"
+rm -f "$S/clip" "$T/bin/wl-paste"
 printf '%s\n' "打开一个网页" "not a url" >"$S/gum"
 $H wizard >"$T/o" 2>&1
 check "wizard: bad web address refused" "grep -q '不像网址' $T/o && ! grep -q 'not a url' $CONF"
