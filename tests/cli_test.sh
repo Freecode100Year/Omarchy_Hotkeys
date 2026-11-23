@@ -83,7 +83,7 @@ data() { sed -n 's#.*<script type=\"application/json\" id=\"data\">\(.*\)</scrip
 check "data block is valid JSON with 5 live hotkeys" "[[ \$(data $M | jq '.all | length') == 5 ]]"
 check "custom hotkeys in the manual, turned-off one marked" "data $M | jq -e '[.custom[] | select(.keys == \"SUPER + W\" and .off)] | length == 1' >/dev/null"
 check "Chinese descriptions kept whole" "data $M | jq -e '[.all[] | select(.keys == \"SUPER + SPACE\" and .action == \"Omarchy 菜单\")] | length == 1' >/dev/null"
-check "official chapter in Chinese" "[[ \$(data $M | jq -r .official) == *快捷键的布局方式* ]]"
+check "official chapter in Chinese" "[[ \$(data $M | jq -r .official) == *平面* ]]"
 if command -v node >/dev/null || [[ -x /opt/node22/bin/node ]]; then
   N="$(command -v node || echo /opt/node22/bin/node)"
   sed -n '/^<script>$/,/^<\/script>$/p' "$M" | sed '1d;$d' >"$T/page.js"
@@ -139,6 +139,33 @@ printf '%s\n' "打开一个网页" "CANCEL" >"$S/gum"
 $H wizard >/dev/null 2>&1
 check "wizard: clipboard that is not a web address is not filled in" "grep -q -- '--value  --width' $S/gum.args && ! grep -q 'rm -rf' $S/gum.args"
 rm -f "$S/clip" "$T/bin/wl-paste"
+# Open a terminal (Foot) and run a command in it; the terminal stays open.
+stub foot 'exec "$@"'
+stub uwsm-app '[[ $1 == -- ]] && shift; exec "$@"'
+stub xdg-terminal-exec 'exec "$@"'
+stub agy "echo \"agy \$*\" >$S/agy.ran"
+stub say "printf '%s\n' \"\$*\" >$S/say.ran"
+# The saved command starts a login shell, which resets PATH from the profile: put the stubs there.
+run_saved() {
+  local line; line="$(grep -F "| $1 |" "$CONF" | sed 's/^[^|]*| [^|]*| //')"
+  printf 'export PATH=%q:$PATH\n' "$T/bin" >"$HOME/.bash_profile"
+  bash -c "$line" </dev/null >/dev/null 2>&1
+  rm -f "$HOME/.bash_profile"
+}
+: >"$S/gum.args"
+printf '%s\n' "打开终端并运行命令" "foot" "agy --dangerously-skip-permissions" "终端：agy" "Super + Ctrl + Alt：快捷操作" "G" "保存" >"$S/gum"
+$H wizard >"$T/o" 2>&1
+check "wizard: terminal command saved as Foot running it in a login shell that stays open" "grep -qF \"| 终端：agy | uwsm-app -- foot bash -lc 'agy --dangerously-skip-permissions; exec bash'\" $CONF"
+check "wizard: only installed terminals offered, default first" "grep -q 'Omarchy 默认终端 foot' $S/gum.args && ! grep -q alacritty $S/gum.args"
+rm -f "$S/agy.ran"; run_saved "终端：agy"
+check "wizard: the saved terminal command really runs the program" "grep -qx 'agy --dangerously-skip-permissions' $S/agy.ran"
+printf '%s\n' "打开终端并运行命令" "Omarchy 默认终端" "say \"it's ok\"" "说句话" "Super + Ctrl + Alt：快捷操作" "H" "保存" >"$S/gum"
+$H wizard >"$T/o" 2>&1
+rm -f "$S/say.ran"; run_saved "说句话"
+check "wizard: default terminal works and quotes in the command survive" "grep -q 'xdg-terminal-exec bash -lc' $CONF && grep -qx \"it's ok\" $S/say.ran"
+check "wizard file still valid Lua with terminal commands" "lua_ok"
+$H remove "SUPER + CTRL + ALT + G" >/dev/null; $H remove "SUPER + CTRL + ALT + H" >/dev/null
+rm -f "$T/bin/foot" "$T/bin/uwsm-app" "$T/bin/xdg-terminal-exec" "$T/bin/agy" "$T/bin/say"
 printf '%s\n' "打开一个网页" "not a url" >"$S/gum"
 $H wizard >"$T/o" 2>&1
 check "wizard: bad web address refused" "grep -q '不像网址' $T/o && ! grep -q 'not a url' $CONF"

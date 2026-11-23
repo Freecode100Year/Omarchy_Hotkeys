@@ -8,8 +8,9 @@
 
 在应用启动器（`Super + Space`）里打开「自定义快捷键」，选「添加快捷键」：
 
-1. 这个快捷键要做什么：打开一个应用 / 打开一个网页 / 运行命令（高级）
+1. 这个快捷键要做什么：打开一个应用 / 打开一个网页 / 打开终端并运行命令 / 运行命令（高级）
 2. 选应用（显示中文名，可以打字搜索），或填网址：在浏览器里复制网址后，按 `Super + V` 粘贴；如果剪贴板里已经是网址，会自动填好，直接按回车
+   选「打开终端并运行命令」时，先选终端（Omarchy 默认终端，或装了的 Foot、Alacritty、kitty、Ghostty），再填命令。例如 `Super + F5` 打开 Foot 运行 `agy --dangerously-skip-permissions`。命令跑完后终端保持打开，可以接着用。
 3. 直接在键盘上按下你想用的组合键，比如 `Super + F1`，它会被记录下来（按 Esc 取消）
 4. 看一眼确认页（你按的组合、它要做什么、这个组合原来有没有用途），选「保存」
 
@@ -99,6 +100,6 @@ curl -fsSL https://raw.githubusercontent.com/Freecode100Year/Omarchy_Hotkeys/mai
 omarchy-hotkeys manual | menu | add "<keys>" "<label>" "<command>" [--force] | disable "<keys>" | remove "<keys>" | list
 ```
 
-When adding a hotkey that opens a web page, paste the address with `Super + V`; an address already on the clipboard is filled in for you.
+When adding a hotkey that opens a web page, paste the address with `Super + V`; an address already on the clipboard is filled in for you. "Open a terminal and run a command" opens Omarchy's default terminal (or Foot, Alacritty, kitty or Ghostty if installed) and runs the command in a login shell that stays open afterwards — e.g. `Super + F5` → Foot running `agy --dangerously-skip-permissions`.
 
 Custom hotkeys live in `~/.config/omarchy-hotkeys/hotkeys.conf` and are applied through Omarchy's toggles folder, so no Omarchy or `~/.config/hypr` file is edited.
