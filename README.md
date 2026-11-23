@@ -10,7 +10,7 @@
 
 1. 这个快捷键要做什么：打开一个应用 / 打开一个网页 / 打开终端并运行命令 / 运行命令（高级）
 2. 选应用（显示中文名，可以打字搜索），或填网址：在浏览器里复制网址后，按 `Super + V` 粘贴；如果剪贴板里已经是网址，会自动填好，直接按回车
-   选「打开终端并运行命令」时，先选终端（Omarchy 默认终端，或装了的 Foot、Alacritty、kitty、Ghostty），再填命令。例如 `Super + F5` 打开 Foot 运行 `agy --dangerously-skip-permissions`。命令跑完后终端保持打开，可以接着用。
+   选「打开终端并运行命令」时，先选终端（Omarchy 默认终端，或装了的 Foot、Alacritty、kitty、Ghostty），再填命令。例如 `Super + F5` 打开 Foot 运行 `agy --dangerously-skip-permissions`。命令跑完后终端保持打开，可以接着用。命令里可以用 `|` 管道（例如 `dmesg | tail`）。
 3. 直接在键盘上按下你想用的组合键，比如 `Super + F1`，它会被记录下来（按 Esc 取消）
 4. 看一眼确认页（你按的组合、它要做什么、这个组合原来有没有用途），选「保存」
 

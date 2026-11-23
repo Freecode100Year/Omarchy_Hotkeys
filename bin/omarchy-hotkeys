@@ -20,7 +20,7 @@
 # a folder Omarchy loads after its own bindings, so no Omarchy or ~/.config/hypr file is edited.
 set -uo pipefail
 
-VERSION=1.4.0
+VERSION=1.4.1
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 APP_DIR="$(dirname "$(dirname "$SELF")")"
 CONFIG_DIR="$HOME/.config/omarchy-hotkeys"
@@ -142,12 +142,17 @@ EOF
 # Lines as "keys<TAB>desc<TAB>cmd" (cmd "disable" = turned off).
 entries() {
   [[ -f $CONFIG ]] || return 0
-  awk -F'|' '
+  # KEYS | label | command — the command is everything after the second "|",
+  # kept as written, so shell pipes ("a | b") in it survive.
+  awk '
+    function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
     /^[[:space:]]*(#|$)/ { next }
     {
-      for (i = 1; i <= NF; i++) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
-      if (NF == 2 && tolower($2) == "disable") print $1 "\t-\tdisable"
-      else if (NF >= 3) { cmd = $3; for (i = 4; i <= NF; i++) cmd = cmd "|" $i; print $1 "\t" $2 "\t" cmd }
+      p = index($0, "|"); if (!p) next
+      keys = trim(substr($0, 1, p - 1)); rest = substr($0, p + 1)
+      q = index(rest, "|")
+      if (!q) { if (tolower(trim(rest)) == "disable") print keys "\t-\tdisable"; next }
+      print keys "\t" trim(substr(rest, 1, q - 1)) "\t" trim(substr(rest, q + 1))
     }' "$CONFIG"
 }
 
@@ -204,8 +209,10 @@ hypr_path() {
 
 # The program a command starts: its first word, after any VAR=value prefixes.
 command_program() {
-  local w
-  for w in $1; do
+  local w c="$1"
+  # Terminal commands made by the wizard: the program is the one run inside the shell.
+  [[ $c =~ bash\ -lc\ \'([^\']+)\' ]] && c="${BASH_REMATCH[1]}"
+  for w in $c; do
     [[ $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && continue
     printf '%s' "$w"
     return
@@ -220,11 +227,13 @@ command_found() {
 }
 
 valid_text() { [[ -n $1 && $1 != *"|"* && $1 != *$'\n'* && ! $1 =~ [[:cntrl:]] ]]; }
+# Commands may contain shell pipes; only empty text and line breaks are refused.
+valid_cmd() { [[ -n $1 && ! $1 =~ [[:cntrl:]] ]]; }
 
 cmd_add() {
   local keys desc="${2:-}" cmd="${3:-}" force="${4:-}" now
   keys="$(normalize_keys "${1:-}")" || die "$(t badKeys "${1:-}")"
-  valid_text "$desc" && valid_text "$cmd" || die "$(t badText)"
+  valid_text "$desc" && valid_cmd "$cmd" || die "$(t badText)"
   [[ $keys == *" + "* && ($keys == *SUPER* || $keys == *CTRL* || $keys == *ALT*) ]] || say "$(t noModifier "$keys")"
   ensure_config
   now="$(current_action "$keys")"
@@ -447,8 +456,9 @@ pick_keys_from_list() {
   local kind="$1" rows=() p mods mask label first=1 plane key free
   for p in "${PLANES[@]}"; do
     IFS=: read -r mods mask label <<<"$p"
-    if ((first)) && [[ $kind != "$(t wizCmd)" ]]; then rows+=("$(t "$label") · $(t wizRecommended)"); else rows+=("$(t "$label")"); fi
-    [[ $kind == "$(t wizCmd)" && $mods == "SUPER + CTRL + ALT" ]] && rows[-1]="$(t "$label") · $(t wizRecommended)"
+    local is_cmd=0; [[ $kind == "$(t wizCmd)" || $kind == "$(t wizTerm)" ]] && is_cmd=1
+    if ((first && !is_cmd)); then rows+=("$(t "$label") · $(t wizRecommended)"); else rows+=("$(t "$label")"); fi
+    ((is_cmd)) && [[ $mods == "SUPER + CTRL + ALT" ]] && rows[-1]="$(t "$label") · $(t wizRecommended)"
     first=0
   done
   while :; do
@@ -510,6 +520,8 @@ record_keys() {
   local out
   out="$(hyprctl eval "$(record_lua)" 2>&1)" || return 3
   [[ -z $out || $out == ok ]] || return 3
+  # Ctrl+C or a closed window while recording: still leave the recording mode.
+  trap 'hyprctl dispatch '"'"'hl.dsp.submap("reset")'"'"' >/dev/null 2>&1; reload_hypr; exit 130' INT TERM HUP
   gum style --bold --foreground 4 "$(t recPrompt)" >&2
   local i got=""
   for ((i = 0; i < 200; i++)); do
@@ -518,6 +530,7 @@ record_keys() {
   done
   # Always leave the recording submap and drop its temporary bindings.
   hyprctl dispatch 'hl.dsp.submap("reset")' >/dev/null 2>&1 || true
+  trap - INT TERM HUP
   reload_hypr
   rm -f "$CAPTURE_FILE"
   if [[ -z $got ]]; then say "$(t recTimeout)" >&2; return 1; fi
@@ -582,16 +595,22 @@ wizard_add() {
         row="${choices[0]}"
       fi
       [[ $row == "$(t wizTermDefault)" ]] && term=default || term="$row"
-      run="$(gum input --header "$(t wizTermCmd)" --placeholder "agy --dangerously-skip-permissions" --width 80)" || return 0
-      run="${run#"${run%%[![:space:]]*}"}"; run="${run%"${run##*[![:space:]]}"}"
-      valid_text "$run" || { gum style --foreground 1 "$(t badText)"; return 0; }
+      # No grey example text in the box: it looked filled in, and Enter then sent
+      # an empty command. The example is in the header; an empty Enter asks again.
+      while :; do
+        run="$(gum input --header "$(t wizTermCmd)"$'\n'"$(t wizTermExample)" --width 80)" || return 0
+        run="${run#"${run%%[![:space:]]*}"}"; run="${run%"${run##*[![:space:]]}"}"
+        [[ -n $run ]] && break
+        gum style --foreground 3 "$(t wizTermEmpty)"
+      done
+      valid_cmd "$run" || { gum style --foreground 1 "$(t badCmd)"; return 0; }
       cmd="$(terminal_command "$term" "$run")"
       desc="$(gum input --header "$(t promptDesc)" --value "$(t wizTermLabel)$(command_program "$run")")" || return 0
       valid_text "$desc" || desc="$(t wizTermLabel)$(command_program "$run")"
       ;;
     "$(t wizCmd)")
       cmd="$(gum input --header "$(t promptCmd)" --width 80)" || return 0
-      valid_text "$cmd" || { gum style --foreground 1 "$(t badText)"; return 0; }
+      valid_cmd "$cmd" || { gum style --foreground 1 "$(t badCmd)"; return 0; }
       desc="$(gum input --header "$(t promptDesc)" --value "$(command_program "$cmd")")" || return 0
       valid_text "$desc" || desc="$(command_program "$cmd")"
       ;;

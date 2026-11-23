@@ -164,8 +164,22 @@ $H wizard >"$T/o" 2>&1
 rm -f "$S/say.ran"; run_saved "说句话"
 check "wizard: default terminal works and quotes in the command survive" "grep -q 'xdg-terminal-exec bash -lc' $CONF && grep -qx \"it's ok\" $S/say.ran"
 check "wizard file still valid Lua with terminal commands" "lua_ok"
+# Enter on an empty command box asks again (it used to fail: the grey example text looked filled in).
+printf '%s\n' "打开终端并运行命令" "foot" "" "echo one | upper" "管道" "Super + Ctrl + Alt：快捷操作 · 推荐" "P" "保存" >"$S/gum"
+$H wizard >"$T/o" 2>&1
+check "wizard: empty command asks again instead of failing" "grep -q '还没填命令' $T/o && grep -q '| 管道 |' $CONF"
+check "wizard: terminal commands recommend Super + Ctrl + Alt" "grep -q 'Super + Ctrl + Alt：快捷操作 · 推荐' $S/gum.args"
+stub upper "tr a-z A-Z >$S/upper.ran"
+rm -f "$S/upper.ran"; run_saved "管道"
+check "commands with a shell pipe are kept intact and run" "grep -qF \"bash -lc 'echo one | upper; exec bash'\" $CONF && grep -qx 'ONE' $S/upper.ran"
+$H add "SUPER + CTRL + ALT + J" "管道2" "dmesg | tail -n 5" >/dev/null 2>&1
+check "add: command with a pipe accepted, spaces around | kept in the Lua" "grep -qF '\"dmesg | tail -n 5\"' $LUA"
+check "add: a | in the label is still refused" "! $H add 'SUPER + CTRL + ALT + K' 'a | b' 'true' >/dev/null 2>&1"
+$H doctor >"$T/doc" 2>&1
+check "doctor looks at the program inside the terminal command" "grep -q '找到命令：agy' $T/doc"
+$H remove "SUPER + CTRL + ALT + P" >/dev/null; $H remove "SUPER + CTRL + ALT + J" >/dev/null
 $H remove "SUPER + CTRL + ALT + G" >/dev/null; $H remove "SUPER + CTRL + ALT + H" >/dev/null
-rm -f "$T/bin/foot" "$T/bin/uwsm-app" "$T/bin/xdg-terminal-exec" "$T/bin/agy" "$T/bin/say"
+rm -f "$T/bin/foot" "$T/bin/uwsm-app" "$T/bin/xdg-terminal-exec" "$T/bin/agy" "$T/bin/say" "$T/bin/upper"
 printf '%s\n' "打开一个网页" "not a url" >"$S/gum"
 $H wizard >"$T/o" 2>&1
 check "wizard: bad web address refused" "grep -q '不像网址' $T/o && ! grep -q 'not a url' $CONF"
